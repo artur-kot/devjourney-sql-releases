@@ -1,0 +1,37 @@
+name: Notify landing page
+
+# devjourney.app resolves the newest installer at BUILD time (src/lib/installer.ts
+# in the landing repo), so a new release here changes nothing on the site until
+# that site is rebuilt. Without this, the download links stay a release behind
+# until someone happens to push to the landing repo.
+#
+# `published` fires for a release leaving draft as well as one created directly,
+# which is what a tagged build from CI does.
+on:
+  release:
+    types: [published]
+  # So a missed or failed notification can be resent without cutting a release.
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      # The default GITHUB_TOKEN is scoped to THIS repo and cannot trigger a
+      # workflow in another one. LANDING_DISPATCH_TOKEN is a fine-grained PAT
+      # with Contents: read and write on artur-kot/devjourney-landing.
+      #
+      # Fails loudly on a missing token: a silent no-op here means the site
+      # advertises an installer that is no longer the newest one, and nothing
+      # anywhere says so.
+      - name: Rebuild devjourney.app
+        env:
+          GH_TOKEN: ${{ secrets.LANDING_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::LANDING_DISPATCH_TOKEN is not set, so devjourney.app will keep pointing at the previous release. Create a fine-grained PAT with Contents: read and write on artur-kot/devjourney-landing and add it as a repository secret."
+            exit 1
+          fi
+          gh api repos/artur-kot/devjourney-landing/dispatches \
+            -f event_type=release-published
+          echo "asked devjourney-landing to rebuild for ${{ github.event.release.tag_name || 'a manual run' }}"
